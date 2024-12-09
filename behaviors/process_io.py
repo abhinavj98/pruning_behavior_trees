@@ -10,7 +10,7 @@ from std_srvs.srv import Trigger
 import rclpy
 import re
 from enum import Enum
-Interrupt = namedtuple("Interrupt", ["joy_action", "callback"])
+Interrupt = namedtuple("Interrupt", ["joy_action", "callback", "async_run"])
 
 #Interrupts dont block the code or the main thread
 #TODO: Implement a sepertate class for Interrupts
@@ -27,8 +27,10 @@ class ProcessIO(py_trees.behaviour.Behaviour):
         self.blackboard = py_trees.blackboard.Blackboard()
 
         self.interrupt_dict = {
-            "move_home": Interrupt(1, self.move_home_callback),
-            "toggle_servo": Interrupt(2, self.toggle_servo_callback),
+            "move_home": Interrupt(1, self.move_home_callback, True),
+            "toggle_servo": Interrupt(2, self.toggle_servo_callback, True),
+            "execute_action": Interrupt(3, self.set_execution_var, False),
+            "reset_rl_model": Interrupt(4, self.reset_rl_model, False)
         }
 
         self.asyncio_loop = asyncio_loop  # Store the event asyncio_loop
@@ -121,29 +123,40 @@ class ProcessIO(py_trees.behaviour.Behaviour):
         self.node.get_logger().info("Toggling servo.")
         await self.handle_resource_switch()
 
-    async def reset_rl_callback(self):
-        # Implement RL reset functionality here
-        self.node.get_logger().info("Resetting reinforcement learning.")
+    def set_execution_var(self):
+        """Toggle the execute_action variable."""
+        execute_action = self.blackboard.get("execute_action")
+        self.blackboard.set("execute_action", not execute_action)
+        self.node.get_logger().info("Setting execute_action variable to {}.".format(self.blackboard.get("execute_action")))
+        return True
+
+    def reset_rl_model(self):
+        """Reset the RL model."""
+        self.blackboard.set("reset_rl_model", True)
+        self.node.get_logger().info("Setting reset_rl_model variable to True.")
 
     def process_interrupt(self, interrupt):
         """
         Handle interrupts asynchronously by scheduling them on the event asyncio_loop.
         """
-        try:
-            # Schedule the coroutine and get the Future
-            future = asyncio.run_coroutine_threadsafe(interrupt.callback(), self.asyncio_loop)
+        if interrupt.async_run:
+            try:
+                # Schedule the coroutine and get the Future
+                future = asyncio.run_coroutine_threadsafe(interrupt.callback(), self.asyncio_loop)
 
-            # Attach a callback to handle completion
-            def on_complete(fut):
-                try:
-                    result = fut.result()  # Fetch the result or handle exceptions
-                    self.node.get_logger().info(f"Interrupt {interrupt.joy_action} completed with result: {result}")
-                except Exception as e:
-                    self.node.get_logger().error(f"Interrupt {interrupt.joy_action} failed: {e}")
+                # Attach a callback to handle completion
+                def on_complete(fut):
+                    try:
+                        result = fut.result()  # Fetch the result or handle exceptions
+                        self.node.get_logger().info(f"Interrupt {interrupt.joy_action} completed with result: {result}")
+                    except Exception as e:
+                        self.node.get_logger().error(f"Interrupt {interrupt.joy_action} failed: {e}")
 
-            future.add_done_callback(on_complete)
-        except Exception as e:
-            self.node.get_logger().error(f"Error processing interrupt: {e}")
+                future.add_done_callback(on_complete)
+            except Exception as e:
+                self.node.get_logger().error(f"Error processing interrupt: {e}")
+        else:
+            interrupt.callback()
 
     async def get_controller_names(self):
         if self.base_ctrl_string is not None:

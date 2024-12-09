@@ -168,15 +168,6 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         resized_mask = cv2.resize(point_mask, dsize=(self.algo_width, self.algo_height))
         return np.expand_dims(resized_mask, axis=0)
     
-    def pretend_action(self, action):
-        """To overcome latency issues, we pretend the action has been executed
-        slower but compensate for that by executing it longer."""
-        return action * self.pretend_action_scale
-
-    def actual_action_from_pretend(self, pretend_action):
-        """Reverse the pretend action scaling."""
-        return pretend_action / self.pretend_action_scale
-    
     @staticmethod
     def mul_homog(mat, vec):
         """Multiply a homogeneous matrix by a vector."""
@@ -211,10 +202,11 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         achieved_or = endpoint_orientation[:3, :2].reshape(6, )
         desired_goal = fb_goal - endpoint_position_init
         joint_angles = self.encode_joint_angles(self.blackboard.get("joint_angles"))
-        prev_action_achieved = self.pretend_action(tool0_velocity).reshape(6, )
+        prev_action_achieved = tool0_velocity.reshape(6, )
         mask = self.create_goal_point_mask(fb_goal)
-        self.blackboard.set("point_mask", mask)
         relative_distance = endpoint_position - fb_goal
+
+        self.blackboard.set("point_mask", mask)
         rgb = self.blackboard.get("camera_image")
         prev_rgb = self.blackboard.get("prev_camera_image")
         if prev_rgb is None:
