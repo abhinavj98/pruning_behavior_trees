@@ -15,6 +15,12 @@ class ComputeRLAction(py_trees.behaviours.Behaviour):
         self.model = RecurrentPPOAE.load(load_path, custom_objects=custom_objects)
         self.model.to(self.device)
 
+    def reorder_observation(self, observation):
+        # Placeholder: Replace with actual logic to reorder the observation
+        return observation
+    
+    def reset():
+
     def update(self):
         blackboard = py_trees.blackboard.Blackboard()
         if "observation" not in blackboard:

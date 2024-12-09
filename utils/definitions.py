@@ -4,7 +4,7 @@ from sensor_msgs.msg import JointState
 
 Joint = namedtuple("Joint", ["angle", "velocity"])
 Observation = namedtuple("Observation", ["achieved_goal", "achieved_or", "desired_goal", "joint_angles",
-                                         "prev_action_achieved", "relative_distance", "rgb", "prev_rgb", "mask"])
+                                         "prev_action_achieved", "relative_distance", "rgb", "prev_rgb", "point_mask"])
 class JointInfo():
     def __init__(self):
         self.control_joints = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint",

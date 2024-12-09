@@ -1,0 +1,3 @@
+[submodule "pruning_sb3"]
+	path = pruning_sb3
+	url = git@github.com:abhinavj98/pruning_sb3.git
