@@ -10,8 +10,11 @@ from pruning_bt.trees.test_io_tree import create_io_processing_tree
 import py_trees_ros
 import asyncio
 import threading
+import sys
 
+# sys.path.append("/home/grimmlins/bt_pruning_ws/src/pruning_bt/pruning_sb3/")
 def main():
+    sys.path.append("/home/grimmlins/bt_pruning_ws/src/pruning_bt/")
     rclpy.init()
     #Set Logging Level to Fatal
 
@@ -26,11 +29,13 @@ def main():
     behavior_tree = py_trees_ros.trees.BehaviourTree(create_rl_controller_tree(asyncio_loop=loop))
     io_behavior_tree = py_trees_ros.trees.BehaviourTree(create_io_processing_tree(asyncio_loop = loop))
     #Create a parallel tree to run both trees
-    behavior_tree.setup(timeout=15)
+    behavior_tree.setup(timeout=400)
     io_behavior_tree.setup(timeout=15)
 
     data_gathering_node.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
     set_goal_service.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
+    io_manager.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
+    # behavior_tree.node.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)
 
     # Create Behavior Tree
     # model_path = "model.pth"  # Update with your model's path
@@ -45,7 +50,7 @@ def main():
     executor.add_node(io_manager)
     executor.add_node(io_behavior_tree.node)
     try:
-        behavior_tree.tick_tock(period_ms=1000)
+        behavior_tree.tick_tock(period_ms=200)
         io_behavior_tree.tick_tock(period_ms=200)
         executor.spin()
     except KeyboardInterrupt:

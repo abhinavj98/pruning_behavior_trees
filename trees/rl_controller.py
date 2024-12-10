@@ -1,7 +1,9 @@
 import py_trees
 from pruning_bt.behaviors.aggregate_observation import AggregateObservation
 from pruning_bt.behaviors.rviz_viz import RVizVisualization
+from pruning_bt.behaviors.compute_rl_action import ComputeRLAction
 import numpy as np
+import sys
 # from behaviors.compute_rl_action import ComputeRLAction
 # from behaviors.publish_velocity import PublishVelocity
 # from behaviors.rviz_viz import RVizMarkerPublisher
@@ -22,12 +24,17 @@ class MockAction(py_trees.behaviour.Behaviour):
         
 def create_rl_controller_tree(asyncio_loop):
     """Construct the behavior tree."""
+    #Export location of pruning_sb3 to PYTHONPATH
+    
+    
     root = py_trees.composites.Sequence("Root", memory=True)
+    rl_model_path = "/home/grimmlins/bt_pruning_ws/src/pruning_bt/weights"
+    load_timestep = 1
 
     #  Aggregate Observation
     aggregate_observation = AggregateObservation(name="Aggregate Observation")
     rviz_vizualization = RVizVisualization(name="RViz Marker Publisher", asyncio_loop = asyncio_loop)
-    mock_action = MockAction("Mock Action")
+    compute_rl_action = ComputeRLAction(name="Compute RL Action", model_path=rl_model_path, load_timestep=load_timestep, asyncio_loop=asyncio_loop)
     # Compute Action
     # compute_action = ComputeRLAction(name="Compute Action", model_path=model_path)
     # # Publish Velocity
@@ -36,5 +43,5 @@ def create_rl_controller_tree(asyncio_loop):
     # rviz_marker_publisher = RVizMarkerPublisher(name="RViz Marker Publisher", node=publisher.node)
 
     # Add to the tree
-    root.add_children([aggregate_observation, mock_action, rviz_vizualization])#, compute_action, publish_velocity, rviz_marker_publisher])
+    root.add_children([aggregate_observation, compute_rl_action, rviz_vizualization])#, compute_action, publish_velocity, rviz_marker_publisher])
     return root

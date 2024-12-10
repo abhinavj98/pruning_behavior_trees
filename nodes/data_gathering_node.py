@@ -53,13 +53,13 @@ class DataGatheringNode(Node):
         self.joint_states.update(msg)
         self.blackboard.set(variable_name="joint_angles", value=self.joint_states.get_joint_angles_ordered())
         self.blackboard.set(variable_name="joint_velocities", value=self.joint_states.get_joint_velocities_ordered())
-        self.get_logger().info(f"Updated joint_states on blackboard")
+        # self.get_logger().info(f"Updated joint_states on blackboard")
 
     def camera_image_callback(self, msg: Image):
         """Update the latest camera image on the blackboard."""
         self.blackboard.set(variable_name="last_camera_image", value=self.blackboard.get("camera_image"))
         self.blackboard.set(variable_name="camera_image", value=self.bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8"))
-        self.get_logger().info("Updated camera_image on blackboard.")
+        # self.get_logger().info("Updated camera_image on blackboard.")
 
     def goal_callback(self, msg: Point):
         """Update the goal on the blackboard."""

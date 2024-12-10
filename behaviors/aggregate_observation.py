@@ -54,7 +54,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
        
         try:
             self.transform_ready = False
-            self.node.get_logger().info(f"Looking for transform from {source_frame} to {target_frame}...")
+            # self.node.get_logger().info(f"Looking for transform from {source_frame} to {target_frame}...")
             future = self.tf_buffer.wait_for_transform_async(target_frame, source_frame, rclpy.time.Time())
             future.add_done_callback(self.lookup_transform_callback)
             while not self.transform_ready:
@@ -107,7 +107,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
                 self.jacobian_result = None
             else:
                 self.jacobian_result = np.array(response.jacobian).reshape(6, 6)
-                self.node.get_logger().info(f"Jacobian retrieved successfully")
+                # self.node.get_logger().info(f"Jacobian retrieved successfully")
         except Exception as e:
             self.node.get_logger().error(f"Jacobian service call failed: {e}")
             self.jacobian_result = None
@@ -148,11 +148,12 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
 
         # Transform the point to the camera frame
         point_in_cam_frame = self.mul_homog(tf_cam_base, point)
+        #Publish point in cam as a marker
 
         # Project the point onto the image plane
         projection = self.camera.project3dToPixel(point_in_cam_frame)
-        row = int(cam_image_dim[0] - projection[1])  # Adjust for image coordinate system
-        col = int(cam_image_dim[1] - projection[0])
+        col = projection[0]  # Adjust for image coordinate system
+        row = projection[1]  # Adjust for image coordinate system
 
         # Check if the projected point is within bounds
         if 0 <= row < cam_image_dim[0] and 0 <= col < cam_image_dim[1]:
@@ -182,7 +183,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         """Non-blocking observation aggregation."""
         if not self.camera.height:
             return py_trees.common.Status.RUNNING
-        self.node.get_logger().info("Aggregating observation...")
+        # self.node.get_logger().info("Aggregating observation...")
         if (
             self.blackboard.get("joint_angles") is None
             or self.blackboard.get("camera_image") is None
@@ -203,7 +204,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         desired_goal = fb_goal - endpoint_position_init
         joint_angles = self.encode_joint_angles(self.blackboard.get("joint_angles"))
         prev_action_achieved = tool0_velocity.reshape(6, )
-        mask = self.create_goal_point_mask(fb_goal)
+        mask = self.create_goal_point_mask(self.blackboard.get("goal"))
         relative_distance = endpoint_position - fb_goal
 
         self.blackboard.set("point_mask", mask)
@@ -225,8 +226,8 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         )
 
         #Print shape of the observation
-        for key, value in observation._asdict().items():
-            self.node.get_logger().info(f"Key: {key}, Value shape: {value.shape}")
+        # for key, value in observation._asdict().items():
+        #     self.node.get_logger().info(f"Key: {key}, Value shape: {value.shape}")
         self.blackboard.set("observation", observation._asdict())
        
         

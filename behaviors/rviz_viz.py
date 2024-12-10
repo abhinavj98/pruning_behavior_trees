@@ -38,21 +38,8 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
         self.transform_result = None
 
     async def lookup_transform(self, target_frame, source_frame):
-        """Asynchronously lookup the transform between two frames."""
         try:
-            future = self.tf_buffer.wait_for_transform_async(
-            target_frame, source_frame, rclpy.time.Time()
-            )
-            await future  
-            tf = self.tf_buffer.lookup_transform(target_frame, source_frame, rclpy.time.Time())
-        except Exception as e:
-            self.node.get_logger().error(f"Failed to lookup transform: {e}")
-            return
-        
-
-    async def lookup_transform(self, target_frame, source_frame):
-        try:
-            self.node.get_logger().info(f"Looking up transform between {target_frame} and {source_frame}")
+            # self.node.get_logger().info(f"Looking up transform between {target_frame} and {source_frame}")
             future = self.tf_buffer.wait_for_transform_async(
                 target_frame, source_frame, rclpy.time.Time()
             )
@@ -72,7 +59,7 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
         try:
             # Schedule the coroutine and get the Future
             self.waiting_for_transform = True
-            print("Getting transform between {} and {}".format(target_frame, source_frame))
+            # print("Getting transform between {} and {}".format(target_frame, source_frame))
             future = asyncio.run_coroutine_threadsafe(self.lookup_transform(target_frame, source_frame), self.asyncio_loop)
 
             def on_complete(fut):
@@ -80,7 +67,7 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
                     result = fut.result()  # Fetch the result or handle exceptions
                     self.waiting_for_transform = False
                     self.transform_result = result
-                    self.node.get_logger().info(f"Transform lookup completed with result: {result}")
+                    # self.node.get_logger().info(f"Transform lookup completed with result: {result}")
                 except Exception as e:
                     self.node.get_logger().error(f"Transform lookup failed: {e}")
 
@@ -131,20 +118,30 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
         marker.pose.position.y = goal[1]
         marker.pose.position.z = goal[2]
 
-        self.node.get_logger().info("Published goal marker at position: {}".format(goal))
+        # self.node.get_logger().info("Published goal marker at position: {}".format(goal))
 
         return marker
+    
+    def adj_multiply(self, mat, vec):
+        """
+        Multiply a 4x4 matrix with a 3x1 vector.
+        """
+        return np.dot(mat[:3, :3], vec) + mat[:3, 3]
         
     
     def get_action_marker(self):
         """Executed action visualization"""
-        print("Getting action marker")
         tf_base_end = self.wait_async_lookup_transform("base_link", "endpoint")
         if tf_base_end is None:
             self.node.get_logger().warn("Failed to lookup transform. Skipping action marker.")
             return
         
-        action = self.blackboard.get("action")
+        action_base = self.blackboard.get("action")
+        tf_b_t = self.wait_async_lookup_transform("base_link", "tool0")
+        #Multiply action to get in base_link frame
+        # action = np.dot(tf_b_t, action_base) $TODO: Check if this is correct
+        action = action_base
+
         if action is None:
             self.node.get_logger().warn("Action not set on blackboard. Skipping action marker.")
             return
@@ -244,7 +241,7 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
             self.image_pub.publish(img_msg)
         except Exception as e:
             self.node.get_logger().error(f"Failed to publish point mask image: {e}")
-            print(point_mask.shape)
+            
     def update(self):
         """
         Periodically publish markers and images to RViz.
