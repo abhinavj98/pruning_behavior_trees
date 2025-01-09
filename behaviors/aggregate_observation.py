@@ -197,6 +197,11 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         endpoint_position, endpoint_orientation =  self.get_current_pose() #wrt fake_base
         fb_goal = self.transform_goal_to_fake_base(self.blackboard.get("goal")) #Convert goal to fake_base frame
         tool0_velocity = self.get_tool0_velocity()
+        #Get tool0 velocity wrt fake_base rotation only (TODO: Use adjoints)
+        # tf_ee_base = self.lookup_transform('fake_base', 'tool0')
+        # tool0_velocity[:3] = np.dot(tf_ee_base[:3, :3].T, tool0_velocity[:3])
+        # tool0_velocity[3:] = np.dot(tf_ee_base[:3, :3].T, tool0_velocity[3:])
+
         endpoint_position_init = self.blackboard.get("end_position_init")
     
         achieved_goal = endpoint_position - endpoint_position_init #end position wrt fake_base

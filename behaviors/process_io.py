@@ -220,6 +220,7 @@ class ProcessIO(py_trees.behaviour.Behaviour):
         """
         for interrupt in self.interrupt_dict.values():
             if self.blackboard.get("joy_action") == interrupt.joy_action:
+                self.node.get_logger().info(f"Processing interrupt {interrupt.joy_action}.")
                 result = self.process_interrupt(interrupt)
         self.blackboard.set("joy_action", -999)
 

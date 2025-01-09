@@ -15,7 +15,6 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
     def __init__(self, name, model_path, load_timestep, asyncio_loop):
         super().__init__(name)
         self.device = "cuda" if th.cuda.is_available() else "cpu"
-        self.init_rl_model(model_path, load_timestep)
         self.blackboard = py_trees.blackboard.Blackboard()
         self.lstm_states = None
         self.episode_start = True
@@ -24,10 +23,12 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         self.waiting_for_tick = True
         self.blackboard.set("action", np.zeros(6))
         self.asyncio_loop = asyncio_loop
+        self.model_path = model_path
+        self.load_timestep = load_timestep
 
         self.key_order = ["achieved_goal", "desired_goal", "relative_distance", "achieved_or", "rgb",
                           "prev_rgb", "point_mask", "joint_angles", "prev_action_achieved"]
-        self.pretend_action_scale = 10
+        self.pretend_action_scale = 5
         self.execution_timeout = 1./2
         self.cb = rclpy.callback_groups.ReentrantCallbackGroup()
         
@@ -43,29 +44,33 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
         self.waiting_for_transform = False
         self.transform_result = None
+        self.init_rl_model(self.model_path, self.load_timestep)
+        
 
 
     def init_rl_model(self, weights_path, load_timestep):
         assert weights_path is not None, "Model path not provided."
+        
+
         load_path = os.path.join(weights_path, f"model_{load_timestep}_steps")
         custom_objects = {"n_envs": 1}
         self.model = RecurrentPPOAE.load(load_path, custom_objects=custom_objects)
         
         self.model.policy.set_training_mode(False)
-        # self.node.get_logger().info(f"Loaded RL model from {load_path}")
+        self.node.get_logger().info(f"Loaded RL model from {load_path}")
 
     def make_observation(self):
         """Prepare the observation for the RL model."""
         observation = self.blackboard.get("observation")
-        observation["prev_action_achieved"] = observation["prev_action_achieved"]
-        print("action achieved: ", observation["prev_action_achieved"])
-        print("Actual action: ", self.blackboard.get("action")*0.2)
+        # observation["prev_action_achieved"] = observation["prev_action_achieved"]
+        # print("action achieved: ", observation["prev_action_achieved"])
+        # print("Actual action: ", self.blackboard.get("action")*0.2)
         ordered_observation = {key: observation[key] for key in self.key_order}
         return ordered_observation
     
     async def lookup_transform(self, target_frame, source_frame):
         try:
-            self.node.get_logger().info(f"Looking up transform between {target_frame} and {source_frame}")
+            # self.node.get_logger().info(f"Looking up transform between {target_frame} and {source_frame}")
             future = self.tf_buffer.wait_for_transform_async(
                 target_frame, source_frame, rclpy.time.Time()
             )
@@ -85,7 +90,6 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         try:
             # Schedule the coroutine and get the Future
             self.waiting_for_transform = True
-            print("Getting transform between {} and {}".format(target_frame, source_frame))
             future = asyncio.run_coroutine_threadsafe(self.lookup_transform(target_frame, source_frame), self.asyncio_loop)
 
             def on_complete(fut):
@@ -93,7 +97,7 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
                     result = fut.result()  # Fetch the result or handle exceptions
                     self.waiting_for_transform = False
                     self.transform_result = result
-                    self.node.get_logger().info(f"Transform lookup completed with result: {result}")
+                    # self.node.get_logger().info(f"Transform lookup completed with result: {result}")
                 except Exception as e:
                     self.node.get_logger().error(f"Transform lookup failed: {e}")
 
@@ -136,13 +140,32 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
 
     def publish_velocity(self):
         action = self.pretend_action(self.blackboard.get("action")) * 0.2
+        #Just rotate action to be in base_link frame
+        tf_ee_base = self.wait_async_lookup_transform("base_link", "tool0")
+        #TODO: Use adjoints
+        action_linear = np.dot(tf_ee_base[:3, :3], action[:3])
+        action_angular = np.dot(tf_ee_base[:3, :3], action[3:])
+    
         twist = TwistStamped()
-        twist.header.frame_id = "tool0"
+        twist.header.frame_id = "base_link"
         twist.header.stamp = self.node.get_clock().now().to_msg()
-        twist.twist.linear = Vector3(x=float(action[0]), y=float(action[1]), z=float(action[2]))
-        twist.twist.angular = Vector3(x=float(action[3]), y=float(action[4]), z=float(action[5]))
+        twist.twist.linear = Vector3(x=float(action_linear[0]), y=float(action_linear[1]), z=float(action_linear[2]))
+        twist.twist.angular = Vector3(x=float(action_angular[0]), y=float(action_angular[1]), z=float(action_angular[2]))
         if self.blackboard.get("execute_action"):
             self.vel_publisher.publish(twist)
+
+    # def publish_velocity(self):
+    #     tf_ee_base = self.wait_async_lookup_transform("fake_base", "tool0")
+    #     action = self.pretend_action(self.blackboard.get("action")) * 0.2
+    #     action_linear = action[:3]
+    #     action_angular = action[3:]
+    #     twist = TwistStamped()
+    #     twist.header.frame_id = "tool0"
+    #     twist.header.stamp = self.node.get_clock().now().to_msg()
+    #     twist.twist.linear = Vector3(x=float(action_linear[0]), y=float(action_linear[1]), z=float(action_linear[2]))
+    #     twist.twist.angular = Vector3(x=float(action_angular[0]), y=float(action_angular[1]), z=float(action_angular[2]))
+    #     if self.blackboard.get("execute_action"):
+    #         self.vel_publisher.publish(twist)
 
         
 
@@ -177,7 +200,7 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
             episode_start=self.episode_start, # Resets the LSTM state at the beginning of each episode.
             deterministic=True,
         )
-        self.blackboard.action = action
+        # self.blackboard.action = action
         self.episode_start = False
         # self.waiting_for_tick = True
         self.blackboard.set("action", action)   
@@ -187,6 +210,6 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
             self.timer = None
         # self.node.get_logger().info("Velocity command published. Starting execution timer.")
         # self.waiting_for_tick = False
-        # self.timer = self.node.create_timer(self.execution_timeout, self.set_velocity_zero, callback_group=self.cb)
+        self.timer = self.node.create_timer(self.execution_timeout, self.set_velocity_zero, callback_group=self.cb)
         self.logger.info(f"Computed action: {action}")
         return py_trees.common.Status.SUCCESS
