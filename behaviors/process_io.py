@@ -7,7 +7,7 @@ from moveit_msgs.msg import RobotState
 import numpy as np
 import rclpy
 
-from utils.interrupts import MoveHomeInterrupt, ToggleServoInterrupt, ChangeBlackboardValueInterrupt
+from pruning_bt.utils.interrupts import MoveHomeInterrupt, ToggleServoInterrupt, ChangeBlackboardValueInterrupt
 # Interrupt = namedtuple("Interrupt", ["joy_action", "callback", "async_run"])
 #Import abstract class for Interrupts
 from abc import ABC, abstractmethod

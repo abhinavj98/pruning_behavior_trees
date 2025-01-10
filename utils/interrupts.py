@@ -70,7 +70,7 @@ class MoveHomeInterrupt(AsyncInterrupt):
         self.node = node
         self.cb_group = cb_group
         self.blackboard = blackboard
-        self.move_to_state_client = node.create_client(MoveToState, "move_group_server/move_to_state", callback_group=cb)
+        self.move_to_state_client = node.create_client(MoveToState, "move_group_server/move_to_state", callback_group=cb_group)
 
     async def move_to_joints(self, joint_values):
         request = MoveToState.Request()
@@ -107,22 +107,23 @@ class ToggleServoInterrupt(AsyncInterrupt):
     class ResourceMode(Enum):
         DEFAULT = 0
         SERVO = 1
+
     def setup(self, node, callback_group, blackboard):
         self.node = node
         self.cb_group = callback_group
         # Interrupt 2: Toggle servo
         self.base_ctrl = self.node.declare_parameter("base_controller", ".*joint_trajectory_controller")
         self.servo_ctrl = self.node.declare_parameter("servo_controller", "forward_position_controller")
-        self.enable_servo = self.node.create_client(Trigger, "/servo_node/start_servo", callback_group=self.cb)
-        self.disable_servo = self.node.create_client(Trigger, "/servo_node/stop_servo", callback_group=self.cb)
+        self.enable_servo = self.node.create_client(Trigger, "/servo_node/start_servo", callback_group=self.cb_group)
+        self.disable_servo = self.node.create_client(Trigger, "/servo_node/stop_servo", callback_group=self.cb_group)
         self.switch_ctrl = self.node.create_client(
-            SwitchController, "/controller_manager/switch_controller", callback_group=self.cb
+            SwitchController, "/controller_manager/switch_controller", callback_group=self.cb_group
         )
         self.list_ctrl = self.node.create_client(
-            ListControllers, "/controller_manager/list_controllers", callback_group=self.cb
+            ListControllers, "/controller_manager/list_controllers", callback_group=self.cb_group
         )
 
-        self.get_ctrl_string_timer = self.node.create_timer(0.1, self.get_controller_names, callback_group=self.cb)
+        self.get_ctrl_string_timer = self.node.create_timer(0.1, self.get_controller_names, callback_group=self.cb_group)
         self.resource_mode = self.ResourceMode.DEFAULT
 
     async def get_controller_names(self):
