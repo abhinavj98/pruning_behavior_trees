@@ -5,7 +5,7 @@ from pruning_bt.nodes.data_gathering_node import DataGatheringNode
 from pruning_bt.nodes.set_goal_service import SetGoalService
 from pruning_bt.nodes.io_manager import IOManager
 from pruning_bt.trees.rl_controller import create_rl_controller_tree
-from pruning_bt.trees.test_io_tree import create_io_processing_tree
+from pruning_bt.trees.io_tree import create_io_processing_tree
 
 import py_trees_ros
 import asyncio
