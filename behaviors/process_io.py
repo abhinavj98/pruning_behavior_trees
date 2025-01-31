@@ -7,7 +7,8 @@ from moveit_msgs.msg import RobotState
 import numpy as np
 import rclpy
 
-from pruning_bt.utils.interrupts import MoveHomeInterrupt, ToggleServoInterrupt, ChangeBlackboardValueInterrupt
+from pruning_bt.utils.interrupts import MoveHomeInterrupt, ToggleServoInterrupt, ChangeBlackboardValueInterrupt, \
+                                        UpdateCutpointInterrupt, UpdateCsvWithEndpoint
 # Interrupt = namedtuple("Interrupt", ["joy_action", "callback", "async_run"])
 #Import abstract class for Interrupts
 from abc import ABC, abstractmethod
@@ -25,7 +26,11 @@ class ProcessIO(py_trees.behaviour.Behaviour):
             "move_home": MoveHomeInterrupt(1),
             "toggle_servo": ToggleServoInterrupt(2),
             "execute_action": ChangeBlackboardValueInterrupt(3, "execute_action", True, ChangeBlackboardValueInterrupt.ValueChange.TOGGLE),
-            "reset_rl_model": ChangeBlackboardValueInterrupt(4, "reset_rl_model", True, ChangeBlackboardValueInterrupt.ValueChange.SET)
+            "reset_rl_model": ChangeBlackboardValueInterrupt(4, "reset_rl_model", True, ChangeBlackboardValueInterrupt.ValueChange.SET),
+            "run_robot_w_joystick": ChangeBlackboardValueInterrupt(11, "teleop_control", True, ChangeBlackboardValueInterrupt.ValueChange.TOGGLE),
+            "increment_cutpoint": UpdateCutpointInterrupt(18, "goal", None, UpdateCutpointInterrupt.ValueChange.SET),
+            "decrement_cutpoint": UpdateCutpointInterrupt(-18, "goal", None, UpdateCutpointInterrupt.ValueChange.SET),
+            "add_goal_to_csv": UpdateCsvWithEndpoint(12)
         }
 
         self.asyncio_loop = asyncio_loop  # Store the event asyncio_loop
@@ -53,8 +58,8 @@ class ProcessIO(py_trees.behaviour.Behaviour):
                 3: "right_joy_x",
                 4: "right_joy_y",
                 5: "RT",
-                6: "Dpad_x",
-                7: "Dpad_y"
+                6: "Dpad_x", #18,19
+                7: "Dpad_y" #20,21
             }
         }
         """
@@ -92,12 +97,13 @@ class ProcessIO(py_trees.behaviour.Behaviour):
                         self.node.get_logger().info(f"Interrupt {interrupt.joy_action} completed with result: {result}")
                     except Exception as e:
                         self.node.get_logger().error(f"Interrupt {interrupt.joy_action} failed: {e}")
+                    return result
 
                 future.add_done_callback(on_complete)
             except Exception as e:
                 self.node.get_logger().error(f"Error processing interrupt: {e}")
         else:
-            interrupt.callback()
+            return interrupt.callback()
 
     def update(self):
         """
@@ -107,6 +113,7 @@ class ProcessIO(py_trees.behaviour.Behaviour):
             if self.blackboard.get("joy_action") == interrupt.joy_action:
                 self.node.get_logger().info(f"Processing interrupt {interrupt.joy_action}.")
                 result = self.process_interrupt(interrupt)
+
         self.blackboard.set("joy_action", -999)
 
         return py_trees.common.Status.SUCCESS

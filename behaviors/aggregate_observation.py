@@ -22,10 +22,11 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         self.algo_height = algo_height
         self.algo_width = algo_width
         self.blackboard.set("observation", None)
-        self.blackboard.set("end_position_init", [0, 0, 0])
+        self.blackboard.set("end_position_init", [0., 0., 0.]) #Whenever robot is reset this gets updated
         self.blackboard.set("prev_camera_image", None)
         self.blackboard.set("camera_image", None)
         self.blackboard.set("point_mask", None)
+        self.blackboard.set("goal", (0., -1., 0.))
         self.camera = PinholeCameraModelNP()
         self.cam_info_topic = cam_info_topic
         # Results placeholder for callbacks
@@ -43,7 +44,11 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
             self.node.get_logger().info('Jacobian service not available, waiting again...')
         if self.cam_info_topic is not None:
             self._cam_info_sub = self.node.create_subscription(CameraInfo, self.cam_info_topic, self._handle_cam_info, 1)
-
+        self.blackboard.set("goal", (0., -1., 0.)) #TODO: This is in setup again because probably the interrupt is changing this to a different value? Investigate
+        # while self.camera.height is None:
+        #     self.node.get_logger().info('Cam not available, waiting again...')
+        dummy_obs = self.get_dummy_obs()
+        self.blackboard.set("observation", dummy_obs._asdict())
         return True
     
     def _handle_cam_info(self, msg: CameraInfo):
@@ -58,7 +63,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
             future = self.tf_buffer.wait_for_transform_async(target_frame, source_frame, rclpy.time.Time())
             future.add_done_callback(self.lookup_transform_callback)
             while not self.transform_ready:
-                print("Waiting for transform...")
+                print("Waiting for transform between frames...", source_frame, target_frame)
 
             tf = self.tf_buffer.lookup_transform(target_frame, source_frame, rclpy.time.Time())
             tl = tf.transform.translation
@@ -79,7 +84,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
 
     def get_current_pose(self):
         """Non-blocking get current pose."""
-        tf = self.lookup_transform('fake_base', 'endpoint')
+        tf = self.lookup_transform('base_link', 'mock_pruner__endpoint')
         endpoint_position, endpoint_orientation = tf[:3, 3],tf[:3, :3]
         return endpoint_position, endpoint_orientation
 
@@ -112,17 +117,48 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
             self.node.get_logger().error(f"Jacobian service call failed: {e}")
             self.jacobian_result = None
 
-    def get_tool0_velocity(self):
+    def make_adjoint_from_transform(self, transform):
+        """
+        Compute the adjoint matrix from a homogeneous transform.
+        """
+        rotation_matrix = transform[:3, :3]
+        translation = transform[:3, 3]
+        p_skew = self.skew_symmetric(translation)
+        adjoint = np.block([
+            [rotation_matrix, np.zeros((3, 3))],
+            [np.dot(p_skew, rotation_matrix), rotation_matrix]
+        ])
+        return adjoint
+    
+    def skew_symmetric(self, vector):
+        """
+        Compute the skew-symmetric matrix of a vector.
+        :param vector: np.array, shape (3,)
+        :return: np.array, shape (3, 3)
+        """
+        x, y, z = vector
+        return np.array([
+            [0, -z, y],
+            [z, 0, -x],
+            [-y, x, 0]
+        ])
+
+    def get_tool0_velocity_and_tool0_goal(self):
         """Compute tool velocity."""
         jacobian = self.update_jacobian()
         joint_velocities = self.blackboard.get("joint_velocities").reshape(6, 1)
-        tool0_velocity = jacobian @ joint_velocities
-        return tool0_velocity
+        tool0_velocity_base_link = jacobian @ joint_velocities
+
+        #Get transform from base_link to tool0
+        tf_tool0_base = self.lookup_transform('tool0', 'base_link')
+        adjoint_tool0_base = self.make_adjoint_from_transform(tf_tool0_base)
+        tool0_velocity_tool0 = np.dot(adjoint_tool0_base, tool0_velocity_base_link)
+        
+        goal = self.blackboard.get("goal")
+        tool0_goal = self.mul_homog(tf_tool0_base, goal)
+
+        return tool0_velocity_tool0, tool0_goal
     
-    
-    def transform_goal_to_fake_base(self, goal):
-        tf = self.lookup_transform('fake_base', 'base_link')
-        return self.mul_homog(tf, goal)
     
     def encode_joint_angles(self, joint_angles):
         """
@@ -157,13 +193,13 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
 
         # Check if the projected point is within bounds
         if 0 <= row < cam_image_dim[0] and 0 <= col < cam_image_dim[1]:
-            radius = 5  # Adjustable radius
+            radius = 20  # Adjustable radius
             rr, cc = disk((row, col), radius, shape=cam_image_dim)
             point_mask[rr, cc] = 1
-        else:
-            self.node.get_logger().warn(
-                f"Projected point out of bounds. Row: {row}, Col: {col}, Bounds: {cam_image_dim}"
-            )
+        # else:
+        #     self.node.get_logger().warn(
+        #         f"Projected point out of bounds. Row: {row}, Col: {col}, Bounds: {cam_image_dim}"
+        #     )
 
         # Resize the mask to the algorithm dimensions
         resized_mask = cv2.resize(point_mask, dsize=(self.algo_width, self.algo_height))
@@ -177,6 +213,35 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         vec_homog[:vec.shape[0]] = vec
 
         return (mat @ vec_homog)[:3]
+    
+    
+    def get_dummy_obs(self):
+        achieved_goal = np.zeros((3,), dtype=np.float32)
+        achieved_or = np.zeros((6,), dtype=np.float32)
+        desired_goal = np.zeros((3,), dtype=np.float32)
+        joint_angles = np.zeros((12,), dtype=np.float32)
+        prev_action_achieved = np.zeros((6,), dtype=np.float32)
+        point_mask = np.zeros((1, self.algo_height, self.algo_width), dtype=np.float32)
+        relative_distance = np.zeros((3,), dtype=np.float32)
+        rgb = np.zeros((3, self.algo_height, self.algo_width), dtype=np.float32)
+        prev_rgb = np.zeros((3, self.algo_height, self.algo_width), dtype=np.float32)
+
+        observation = Observation(
+            achieved_goal=achieved_goal,
+            achieved_or=achieved_or,
+            desired_goal=desired_goal,
+            joint_angles=joint_angles,
+            prev_action_achieved=prev_action_achieved,
+            point_mask=point_mask,
+            relative_distance=relative_distance,
+            rgb=rgb,
+            prev_rgb=prev_rgb,
+        )
+
+        return observation
+        
+
+
 
 
     def update(self):
@@ -194,23 +259,24 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
 
       
        
-        endpoint_position, endpoint_orientation =  self.get_current_pose() #wrt fake_base
-        fb_goal = self.transform_goal_to_fake_base(self.blackboard.get("goal")) #Convert goal to fake_base frame
-        tool0_velocity = self.get_tool0_velocity()
-        #Get tool0 velocity wrt fake_base rotation only (TODO: Use adjoints)
-        # tf_ee_base = self.lookup_transform('fake_base', 'tool0')
+        endpoint_position, endpoint_orientation =  self.get_current_pose() #wrt base_link
+        goal = np.array(self.blackboard.get("goal")) #Convert goal to base_link frame
+        tool0_velocity, tool0_goal = self.get_tool0_velocity_and_tool0_goal()
+        #Get tool0 velocity wrt base_link rotation only (TODO: Use adjoints)
+        # tf_ee_base = self.lookup_transform('base_link', 'tool0')
         # tool0_velocity[:3] = np.dot(tf_ee_base[:3, :3].T, tool0_velocity[:3])
         # tool0_velocity[3:] = np.dot(tf_ee_base[:3, :3].T, tool0_velocity[3:])
 
         endpoint_position_init = self.blackboard.get("end_position_init")
     
-        achieved_goal = endpoint_position - endpoint_position_init #end position wrt fake_base
+        achieved_goal = endpoint_position - endpoint_position_init #end position wrt base_link
+        desired_goal_tool = tool0_goal
+        
         achieved_or = endpoint_orientation[:3, :2].reshape(6, )
-        desired_goal = fb_goal - endpoint_position_init
         joint_angles = self.encode_joint_angles(self.blackboard.get("joint_angles"))
-        prev_action_achieved = tool0_velocity.reshape(6, )
+        prev_action_achieved = tool0_velocity.reshape(6, ) #In tool0 frame
         mask = self.create_goal_point_mask(self.blackboard.get("goal"))
-        relative_distance = endpoint_position - fb_goal
+        relative_distance = endpoint_position - goal
 
         self.blackboard.set("point_mask", mask)
         rgb = self.blackboard.get("camera_image")
@@ -221,7 +287,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         observation = Observation(
             achieved_goal=achieved_goal,
             achieved_or=achieved_or,
-            desired_goal=desired_goal,
+            desired_goal=desired_goal_tool,
             joint_angles=joint_angles,
             prev_action_achieved=prev_action_achieved,
             point_mask=mask,

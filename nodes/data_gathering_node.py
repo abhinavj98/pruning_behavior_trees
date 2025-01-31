@@ -68,8 +68,6 @@ class DataGatheringNode(Node):
 
 
 def main(args=None):
-    
-    
     rclpy.init(args=args)
     node = DataGatheringNode()
     node.get_logger().set_level(rclpy.logging.LoggingSeverity.FATAL)

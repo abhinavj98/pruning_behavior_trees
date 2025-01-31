@@ -3,6 +3,7 @@ import rclpy
 # from pruning_bt.trees.rl_controller import rl_controller_tree
 from pruning_bt.nodes.data_gathering_node import DataGatheringNode
 from pruning_bt.nodes.set_goal_service import SetGoalService
+from pruning_bt.nodes.teleop_node import TeleopNode
 from pruning_bt.nodes.io_manager import IOManager
 from pruning_bt.trees.rl_controller import create_rl_controller_tree
 from pruning_bt.trees.io_tree import create_io_processing_tree
@@ -22,6 +23,7 @@ def main():
     data_gathering_node = DataGatheringNode()
     set_goal_service = SetGoalService()
     io_manager = IOManager()
+    teleop_node = TeleopNode()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
@@ -43,12 +45,14 @@ def main():
     behavior_tree.setup(timeout=15)
 
     # Multi-threaded executor
+    #Launch everything from the same process so that blackboard is shared
     executor = MultiThreadedExecutor()
     executor.add_node(data_gathering_node)
     executor.add_node(behavior_tree.node)
     executor.add_node(set_goal_service)
     executor.add_node(io_manager)
     executor.add_node(io_behavior_tree.node)
+    executor.add_node(teleop_node)
     try:
         behavior_tree.tick_tock(period_ms=200)
         io_behavior_tree.tick_tock(period_ms=200)

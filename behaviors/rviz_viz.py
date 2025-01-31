@@ -12,6 +12,65 @@ import rclpy
 import asyncio
 from scipy.spatial.transform import Rotation
 
+from std_msgs.msg import ColorRGBA
+
+class TextMarkerPublisher():
+    def __init__(self, node, keys):
+        super().__init__()
+
+        # Publisher for Marker messages
+        self.node = node
+
+        self.publisher = self.node.create_publisher(MarkerArray, 'robot_info', 10)
+
+        # Create a timer to publish the marker periodically
+        # self.timer = self.node.create_timer(1.0, self.publish_marker)
+        self.keys = keys
+
+        # Initialize a counter to show dynamic changes in the text
+        self.counter = 0
+
+        self.blackboard = py_trees.blackboard.Blackboard()
+
+    def publish_marker(self):
+        # Create a Marker message
+
+        marker_array = MarkerArray()
+        base_pos_max = np.array([1., -1., 2.])
+        base_pose_min = np.array([1., -1., 1.])
+        increment = (base_pos_max - base_pose_min)/len(self.keys)
+        for i, key in enumerate(self.keys):
+            marker = Marker()
+            marker.header.stamp = self.node.get_clock().now().to_msg()
+            marker.header.frame_id = "world"  # You can change this to the frame where you want the text to appear
+            marker.ns = "text_marker"  # Namespace for the marker
+            marker.id = i  # Unique ID for the marker (use a unique number for each marker)
+
+            # Set the type of the marker to TEXT_VIEW_FACING
+            marker.type = Marker.TEXT_VIEW_FACING
+            marker.action = Marker.ADD
+
+            pos = base_pose_min + i*increment
+            # Set the position where the text will appear in the 3D space
+            marker.pose.position = Point(x=pos[0], y = pos[1], z = pos[2])  # Adjust position as needed
+
+            # Set the text content of the marker
+            marker.text = f"{key}:{self.blackboard.get(key)}"
+
+            # Set the color of the text (RGBA format)
+            marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)  # Red color, fully opaque
+
+            # Set the scale of the text
+            marker.scale.z = 0.1  # Font size (z-scale controls text size)
+
+            # Publish the marker
+            marker_array.markers.append(marker)
+
+            # Increment counter for dynamic text
+            self.counter += 1
+
+        self.publisher.publish(marker_array )
+
 class RVizVisualization(py_trees.behaviour.Behaviour):
     """
     A PyTree behavior that publishes visualization markers and images to RViz.
@@ -28,8 +87,8 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
 
     def setup(self, node):
         self.node = node
-
         # Publishers
+        self.info_display = TextMarkerPublisher(node, ['teleop_control', 'controller_mode', 'execute_action'])
         self.marker_pub = self.node.create_publisher(MarkerArray, "/visualization_marker", 10)
         self.image_pub = self.node.create_publisher(Image, "/point_mask_image", 10)
         self.tf_buffer = Buffer()
@@ -131,7 +190,7 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
     
     def get_action_marker(self):
         """Executed action visualization"""
-        tf_base_end = self.wait_async_lookup_transform("base_link", "endpoint")
+        tf_base_end = self.wait_async_lookup_transform("base_link", 'mock_pruner__endpoint')
         if tf_base_end is None:
             self.node.get_logger().warn("Failed to lookup transform. Skipping action marker.")
             return
@@ -242,14 +301,19 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
         except Exception as e:
             self.node.get_logger().error(f"Failed to publish point mask image: {e}")
             
+    def publish_blackboard_text(self):
+        """
+        Read blackboard stuff from 
+        """
     def update(self):
         """
         Periodically publish markers and images to RViz.
         """
         goal_marker = self.get_goal_marker()
-        trans_markers, angular_markers = self.get_action_marker()
+        # trans_markers, angular_markers = self.get_action_marker()
         # print(len(angular_markers))
-        self.marker_pub.publish(MarkerArray(markers=[goal_marker, trans_markers, *angular_markers]))
+        self.marker_pub.publish(MarkerArray(markers=[goal_marker]))
+        self.info_display.publish_marker()  
         self.publish_point_mask()
         return py_trees.common.Status.SUCCESS
 

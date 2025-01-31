@@ -10,10 +10,10 @@ class SetGoalService(Node):
         super().__init__('goal_service')
 
         # Create a publisher with transient local QoS for latched behavior
-        qos_profile = QoSProfile(
-            depth=1,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL
-        )
+        # qos_profile = QoSProfile(
+        #     depth=1,
+        #     durability=DurabilityPolicy.TRANSIENT_LOCAL
+        # )
         # self.publisher = self.create_publisher(Goal, '/goal', qos_profile)
         self.blackboard = py_trees.blackboard.Blackboard()
         self.callback_group = rclpy.callback_groups.ReentrantCallbackGroup()
@@ -24,20 +24,18 @@ class SetGoalService(Node):
     def handle_set_goal(self, request, response):
         """Handle incoming requests to set a goal."""
         try:
-            # Create and publish the goal message
-            # goal_msg = Point()
-            # goal_msg.x = request.x
-            # goal_msg.y = request.y
-            # goal_msg.z = request.z
-            # self.publisher.publish(goal_msg)
-            self.blackboard.set("goal", (request.x, request.y, request.z))
+            self.blackboard.set("goal", (request.position.x, request.position.y, request.position.z))
 
             # Log the published goal
             # self.get_logger().info(f"Published latched goal: {goal_msg}")
-            self.get_logger().info(f"Writing goal to blackboard: ({request.x}, {request.y}, {request.z})")
+            self.get_logger().info(f"Writing goal to blackboard: ({request.position.x}, {request.position.y}, {request.position.z})")
+            #Append goal to csv
+            with open('goal_log.csv', 'a') as f:
+                f.write(f"{request.position.x},{request.position.y},{request.position.z}\n")
+            
             # Respond to the service call
             response.success = True
-            response.message = f"Goal successfully published: ({request.x}, {request.y}, {request.z})"
+            response.message = f"Goal successfully published: ({request.position.x}, {request.position.y}, {request.position.z})"
         except Exception as e:
             # Handle any errors and log them
             self.get_logger().error(f"Failed to write goal: {e}")

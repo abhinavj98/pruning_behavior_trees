@@ -38,16 +38,18 @@ class ChangeBlackboardValueInterrupt(Interrupt):
         SET = 0
         TOGGLE = 1
 
-    def __init__(self, joy_action, key, value, value_change):
+    def __init__(self, joy_action, key, value, value_change, default_value=False):
         super().__init__(joy_action)
         self.key = key
         self.value = value
         self.value_change = value_change
+        self.default_value = default_value
 
     def setup(self, node, callback_group, blackboard):
         self.blackboard = blackboard
         self.node = node
         self.cb_group = callback_group
+        self.blackboard.set(self.key, self.default_value)
 
     def change_blackboard_value(self):
         if self.value_change == self.ValueChange.TOGGLE:
@@ -87,14 +89,14 @@ class MoveHomeInterrupt(AsyncInterrupt):
 
     async def move_home_callback(self):
         home_joint_angles = (-np.pi / 2, -np.pi * 2 / 3, np.pi * 2 / 3, -np.pi, -np.pi / 2,
-                                  np.pi)
+                                  0.0)
         self.node.get_logger().info("Moving to home position.")
-        await self.move_to_joints(home_joint_angles)
-        return True
+        result = await self.move_to_joints(home_joint_angles)
+        return result
 
     async def callback(self):
-        await self.move_home_callback()
-        return True
+        result = await self.move_home_callback()
+        return result
 
 
 class ToggleServoInterrupt(AsyncInterrupt):
@@ -102,6 +104,7 @@ class ToggleServoInterrupt(AsyncInterrupt):
         super().__init__(joy_action)
         self.base_ctrl_string = None
         self.servo_ctrl_string = None
+       
 
 
     class ResourceMode(Enum):
@@ -111,6 +114,7 @@ class ToggleServoInterrupt(AsyncInterrupt):
     def setup(self, node, callback_group, blackboard):
         self.node = node
         self.cb_group = callback_group
+        self.blackboard = blackboard
         # Interrupt 2: Toggle servo
         self.base_ctrl = self.node.declare_parameter("base_controller", ".*joint_trajectory_controller")
         self.servo_ctrl = self.node.declare_parameter("servo_controller", "forward_position_controller")
@@ -125,6 +129,7 @@ class ToggleServoInterrupt(AsyncInterrupt):
 
         self.get_ctrl_string_timer = self.node.create_timer(0.1, self.get_controller_names, callback_group=self.cb_group)
         self.resource_mode = self.ResourceMode.DEFAULT
+        self.blackboard.set("controller_mode", self.resource_mode)
 
     async def get_controller_names(self):
         if self.base_ctrl_string is not None:
@@ -179,6 +184,7 @@ class ToggleServoInterrupt(AsyncInterrupt):
         # self.resource_ready = True
         self.node.get_logger().info("Resource switch completed to mode: {}".format(self.resource_mode))
 
+        self.blackboard.set("controller_mode", self.resource_mode)
         return
 
     async def callback(self):
@@ -186,3 +192,46 @@ class ToggleServoInterrupt(AsyncInterrupt):
         await self.handle_resource_switch()
         return True
 
+class UpdateCutpointInterrupt(ChangeBlackboardValueInterrupt):
+    csv_index = -1
+    def __init__(self, joy_action, key, value, value_change, default_value=False):
+        super().__init__(joy_action, key, value, value_change, default_value)
+        self.csv_file = "goal_log.csv"
+
+    def setup(self, node, callback_group, blackboard):
+        super().setup(node, callback_group, blackboard)
+
+    def callback(self):
+        #Read the csv file
+        if self.joy_action<0:
+            UpdateCutpointInterrupt.csv_index += 1
+        elif self.joy_action>0:
+            UpdateCutpointInterrupt.csv_index -= 1
+        UpdateCutpointInterrupt.csv_index = max(0, self.csv_index)
+        with open(self.csv_file, 'r') as f:
+            lines = f.readlines()
+            if self.csv_index < len(lines):
+                line = lines[self.csv_index]
+                values = line.split(',')
+                x = float(values[0])
+                y = float(values[1])
+                z = float(values[2])
+                self.value = (x, y, z)
+                self.node.get_logger().info(f"Setting blackboard value {self.key} to {self.value} with index {self.csv_index}.")
+                return self.change_blackboard_value()
+            else:
+                UpdateCutpointInterrupt.csv_index = len(lines)-1
+                self.node.get_logger().info("End of csv file reached.")
+                return False
+            
+class UpdateCsvWithEndpoint(AsyncInterrupt): 
+    def __init__(self, joy_action):
+        super().__init__(joy_action)
+        
+    def setup(self, node, callback_group, blackboard):
+        self.node = node
+        self.callback_group = callback_group
+        self.update_csv_client = self.node.create_client(Trigger, "set_goal_from_endpoint")
+
+    async def callback(self):
+        self.update_csv_client.call_async(Trigger.Request())

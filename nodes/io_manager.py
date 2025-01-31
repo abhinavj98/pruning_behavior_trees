@@ -122,8 +122,8 @@ class IOManager(Node):
                 3: "right_joy_x",
                 4: "right_joy_y",
                 5: "RT",
-                6: "Dpad_x",
-                7: "Dpad_y"
+                6: "Dpad_x", #18.
+                7: "Dpad_y" #19
             }
         }
         """
@@ -136,8 +136,10 @@ class IOManager(Node):
             ) for i in range(14)}
         
         #Assign low and high callbacks to the axes
-        self.axes = {}
-            
+        self.axes = {
+            6:Axis(-1.0, 1.0, high_callback=partial(self.send_joy_action, 18), low_callback=partial(self.send_joy_action, -18)),
+            7:Axis(-1.0, 1.0, high_callback=partial(self.send_joy_action, 19), low_callback=partial(self.send_joy_action, -19))
+        }
         
         return
 

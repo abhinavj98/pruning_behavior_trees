@@ -29,7 +29,7 @@ def create_rl_controller_tree(asyncio_loop):
     
     root = py_trees.composites.Sequence("Root", memory=True)
     rl_model_path = "/home/grimmlins/bt_pruning_ws/src/pruning_bt/weights"
-    load_timestep = 1
+    load_timestep = 1092000#1176000#1092000
 
     #  Aggregate Observation
     aggregate_observation = AggregateObservation(name="Aggregate Observation")

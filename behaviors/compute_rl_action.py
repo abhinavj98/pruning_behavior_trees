@@ -10,6 +10,7 @@ import sys
 from scipy.spatial.transform import Rotation
 import asyncio
 from tf2_ros import Buffer, TransformListener
+import torch
 class ComputeRLAction(py_trees.behaviour.Behaviour):
     """Compute an action using RL logic."""
     def __init__(self, name, model_path, load_timestep, asyncio_loop):
@@ -50,6 +51,7 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
 
     def init_rl_model(self, weights_path, load_timestep):
         assert weights_path is not None, "Model path not provided."
+        torch.set_float32_matmul_precision('high')
         
 
         load_path = os.path.join(weights_path, f"model_{load_timestep}_steps")
@@ -57,6 +59,13 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         self.model = RecurrentPPOAE.load(load_path, custom_objects=custom_objects)
         
         self.model.policy.set_training_mode(False)
+
+        #Dummy prediction
+        observation = self.blackboard.get("observation")
+        self.model.predict(observation=observation, 
+                           state=self.lstm_states,
+                            episode_start=self.episode_start, # Resets the LSTM state at the beginning of each episode.
+                            deterministic=True)
         self.node.get_logger().info(f"Loaded RL model from {load_path}")
 
     def make_observation(self):
@@ -122,7 +131,8 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
     def reset(self):
         self.node.get_logger().info("Resetting RL model.")
         #get ee pose wrt base_link
-        tf_ee_base = self.wait_async_lookup_transform("fake_base", "endpoint")
+        tf_ee_base = self.wait_async_lookup_transform("base_link", 'mock_pruner__endpoint')
+        self.node.get_logger().info(f"EE pose wrt base_link: {tf_ee_base}")
         # self.lstm_states = None
         self.episode_start = True
         #TODO: End effector index during training should be the same here
@@ -141,21 +151,21 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
     def publish_velocity(self):
         action = self.pretend_action(self.blackboard.get("action")) * 0.2
         #Just rotate action to be in base_link frame
-        tf_ee_base = self.wait_async_lookup_transform("base_link", "tool0")
-        #TODO: Use adjoints
-        action_linear = np.dot(tf_ee_base[:3, :3], action[:3])
-        action_angular = np.dot(tf_ee_base[:3, :3], action[3:])
-    
+        action_linear = action[:3]
+        action_angular = action[3:]
+
+        #Build the twist message
         twist = TwistStamped()
-        twist.header.frame_id = "base_link"
+        twist.header.frame_id = "tool0"
         twist.header.stamp = self.node.get_clock().now().to_msg()
         twist.twist.linear = Vector3(x=float(action_linear[0]), y=float(action_linear[1]), z=float(action_linear[2]))
         twist.twist.angular = Vector3(x=float(action_angular[0]), y=float(action_angular[1]), z=float(action_angular[2]))
         if self.blackboard.get("execute_action"):
             self.vel_publisher.publish(twist)
 
+
     # def publish_velocity(self):
-    #     tf_ee_base = self.wait_async_lookup_transform("fake_base", "tool0")
+    #     tf_ee_base = self.wait_async_lookup_transform("base_link", "tool0")
     #     action = self.pretend_action(self.blackboard.get("action")) * 0.2
     #     action_linear = action[:3]
     #     action_angular = action[3:]
@@ -193,7 +203,7 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.FAILURE
 
         observation = self.make_observation()
-        # Placeholder: Replace with actual RL model inference logic
+
         action, self.lstm_states = self.model.predict(
             observation,  # type: ignore[arg-type]
             state=self.lstm_states,
