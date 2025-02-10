@@ -49,14 +49,24 @@ class ChangeBlackboardValueInterrupt(Interrupt):
         self.blackboard = blackboard
         self.node = node
         self.cb_group = callback_group
-        self.blackboard.set(self.key, self.default_value)
+        if not isinstance(self.key, list):
+            self.key = [self.key]
+            self.value = [self.value]
+
+        for i in self.key:
+            self.blackboard.set(i, self.default_value)
 
     def change_blackboard_value(self):
-        if self.value_change == self.ValueChange.TOGGLE:
-            self.value = not self.blackboard.get(self.key)
+        
 
-        self.blackboard.set(self.key, self.value)
-        self.node.get_logger().info("Setting blackboard value {} to {}.".format(self.key, self.value))
+        key_val_pair = zip(self.key, self.value)
+        key_val_pair = [list(item) for item in key_val_pair]
+        for key_val in key_val_pair:
+            if self.value_change == self.ValueChange.TOGGLE:
+                key_val[1] = not self.blackboard.get(key_val[0])
+
+            self.blackboard.set(key_val[0], key_val[1])
+        self.value = [i[1] for i in key_val_pair]
         return True
 
     def callback(self):
@@ -64,8 +74,9 @@ class ChangeBlackboardValueInterrupt(Interrupt):
 
 class MoveHomeInterrupt(AsyncInterrupt):
 
-    def __init__(self, joy_action):
+    def __init__(self, joy_action, rotated = True):
         super().__init__(joy_action)
+        self.rotated = rotated
 
 
     def setup(self, node, cb_group, blackboard):
@@ -88,8 +99,13 @@ class MoveHomeInterrupt(AsyncInterrupt):
         return result
 
     async def move_home_callback(self):
-        home_joint_angles = (-np.pi / 2, -np.pi * 2 / 3, np.pi * 2 / 3, -np.pi, -np.pi / 2,
-                                  0.0)
+        if self.rotated:
+            home_joint_angles = (-np.pi / 2 + np.pi/4, -np.pi * 2 / 3, np.pi * 2 / 3, -np.pi, -np.pi / 2,
+                                    0.0)
+        else:
+            home_joint_angles = (-np.pi / 2, -np.pi * 2 / 3, np.pi * 2 / 3, -np.pi, -np.pi / 2,
+                                    0.0)
+
         self.node.get_logger().info("Moving to home position.")
         result = await self.move_to_joints(home_joint_angles)
         return result
@@ -194,9 +210,9 @@ class ToggleServoInterrupt(AsyncInterrupt):
 
 class UpdateCutpointInterrupt(ChangeBlackboardValueInterrupt):
     csv_index = -1
-    def __init__(self, joy_action, key, value, value_change, default_value=False):
+    def __init__(self, joy_action, key, value, value_change, default_value=(0,0,0), tree_type = 'default', tree_number = -1):
         super().__init__(joy_action, key, value, value_change, default_value)
-        self.csv_file = "goal_log.csv"
+        self.csv_file = f"results/{tree_type}_{tree_number}.csv"
 
     def setup(self, node, callback_group, blackboard):
         super().setup(node, callback_group, blackboard)
@@ -216,7 +232,7 @@ class UpdateCutpointInterrupt(ChangeBlackboardValueInterrupt):
                 x = float(values[0])
                 y = float(values[1])
                 z = float(values[2])
-                self.value = (x, y, z)
+                self.value = [(x, y, z), UpdateCutpointInterrupt.csv_index]
                 self.node.get_logger().info(f"Setting blackboard value {self.key} to {self.value} with index {self.csv_index}.")
                 return self.change_blackboard_value()
             else:

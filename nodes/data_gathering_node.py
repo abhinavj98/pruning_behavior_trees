@@ -20,7 +20,7 @@ class DataGatheringNode(Node):
         self.blackboard = py_trees.blackboard.Blackboard()
         self.blackboard.set(variable_name="joint_angles", value=None)
         self.blackboard.set(variable_name="camera_image", value=None)
-        self.blackboard.set(variable_name="goal", value=None)
+        self.blackboard.set(variable_name="goal", value=(0,0,0))
         self.blackboard.set(variable_name="last_camera_image", value=None)
 
         self.joint_states = JointInfo()

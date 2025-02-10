@@ -4,9 +4,10 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 from pruning_bt_interfaces.srv import SetGoal
 from geometry_msgs.msg import Point
 import py_trees
+import csv
 
 class SetGoalService(Node):
-    def __init__(self):
+    def __init__(self, tree_type, tree_number, trial_number):
         super().__init__('goal_service')
 
         # Create a publisher with transient local QoS for latched behavior
@@ -17,7 +18,9 @@ class SetGoalService(Node):
         # self.publisher = self.create_publisher(Goal, '/goal', qos_profile)
         self.blackboard = py_trees.blackboard.Blackboard()
         self.callback_group = rclpy.callback_groups.ReentrantCallbackGroup()
-
+        self.filename = f"{tree_type}_{tree_number}"
+        with open(f'results/{self.filename}.csv', 'a') as f:
+            writer = csv.writer(f)
         # Create the service
         self.srv = self.create_service(SetGoal, 'set_goal', self.handle_set_goal, callback_group=self.callback_group)
 
@@ -30,7 +33,7 @@ class SetGoalService(Node):
             # self.get_logger().info(f"Published latched goal: {goal_msg}")
             self.get_logger().info(f"Writing goal to blackboard: ({request.position.x}, {request.position.y}, {request.position.z})")
             #Append goal to csv
-            with open('goal_log.csv', 'a') as f:
+            with open(f'results/{self.filename}.csv', 'a') as f:
                 f.write(f"{request.position.x},{request.position.y},{request.position.z}\n")
             
             # Respond to the service call

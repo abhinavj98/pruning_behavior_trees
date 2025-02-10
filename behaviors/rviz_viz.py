@@ -88,7 +88,7 @@ class RVizVisualization(py_trees.behaviour.Behaviour):
     def setup(self, node):
         self.node = node
         # Publishers
-        self.info_display = TextMarkerPublisher(node, ['teleop_control', 'controller_mode', 'execute_action'])
+        self.info_display = TextMarkerPublisher(node, ['teleop_control', 'controller_mode', 'execute_action', 'cutpoint_num'])
         self.marker_pub = self.node.create_publisher(MarkerArray, "/visualization_marker", 10)
         self.image_pub = self.node.create_publisher(Image, "/point_mask_image", 10)
         self.tf_buffer = Buffer()

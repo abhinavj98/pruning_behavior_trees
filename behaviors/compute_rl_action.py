@@ -13,7 +13,7 @@ from tf2_ros import Buffer, TransformListener
 import torch
 class ComputeRLAction(py_trees.behaviour.Behaviour):
     """Compute an action using RL logic."""
-    def __init__(self, name, model_path, load_timestep, asyncio_loop):
+    def __init__(self, name, model_path, load_timestep, load_folder, asyncio_loop):
         super().__init__(name)
         self.device = "cuda" if th.cuda.is_available() else "cpu"
         self.blackboard = py_trees.blackboard.Blackboard()
@@ -26,11 +26,15 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         self.asyncio_loop = asyncio_loop
         self.model_path = model_path
         self.load_timestep = load_timestep
+        self.load_folder = load_folder
 
         self.key_order = ["achieved_goal", "desired_goal", "relative_distance", "achieved_or", "rgb",
                           "prev_rgb", "point_mask", "joint_angles", "prev_action_achieved"]
-        self.pretend_action_scale = 5
+        self.pretend_action_scale = 10
         self.execution_timeout = 1./2
+        self.steps = 0
+
+        self.blackboard.set("steps", self.steps)
         self.cb = rclpy.callback_groups.ReentrantCallbackGroup()
         
 
@@ -45,16 +49,16 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
         self.waiting_for_transform = False
         self.transform_result = None
-        self.init_rl_model(self.model_path, self.load_timestep)
+        self.init_rl_model(self.model_path, self.load_folder, self.load_timestep)
         
 
 
-    def init_rl_model(self, weights_path, load_timestep):
+    def init_rl_model(self, weights_path, load_folder, load_timestep):
         assert weights_path is not None, "Model path not provided."
         torch.set_float32_matmul_precision('high')
         
 
-        load_path = os.path.join(weights_path, f"model_{load_timestep}_steps")
+        load_path = os.path.join(weights_path, load_folder, f"model_{load_timestep}_steps")
         custom_objects = {"n_envs": 1}
         self.model = RecurrentPPOAE.load(load_path, custom_objects=custom_objects)
         
@@ -137,6 +141,10 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         self.episode_start = True
         #TODO: End effector index during training should be the same here
         self.blackboard.set("end_position_init", tf_ee_base[:3, 3])
+        self.blackboard.set("is_terminated", False)
+        self.steps = 0
+
+        self.blackboard.set("steps", self.steps)
 
 
     def pretend_action(self, action):
@@ -149,7 +157,7 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         return pretend_action / self.pretend_action_scale
 
     def publish_velocity(self):
-        action = self.pretend_action(self.blackboard.get("action")) * 0.2
+        action = self.pretend_action(self.blackboard.get("action")) * 0.1
         #Just rotate action to be in base_link frame
         action_linear = action[:3]
         action_angular = action[3:]
@@ -189,13 +197,15 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
 
         execute_action = self.blackboard.get("execute_action") # Set via interrupts
         reset_rl_model = self.blackboard.get("reset_rl_model") # Set via interrupts
-        if not execute_action:
-            return py_trees.common.Status.SUCCESS
+        is_terminated = self.blackboard.get("is_terminated")
         if reset_rl_model:
             self.reset()
             self.node.get_logger().info("Resetting RL model.")
             self.blackboard.set("reset_rl_model", False)
             return py_trees.common.Status.SUCCESS
+        if not execute_action or is_terminated:
+            return py_trees.common.Status.SUCCESS
+       
         
         self.node.get_logger().info("Computing RL action.")
 
@@ -222,4 +232,6 @@ class ComputeRLAction(py_trees.behaviour.Behaviour):
         # self.waiting_for_tick = False
         self.timer = self.node.create_timer(self.execution_timeout, self.set_velocity_zero, callback_group=self.cb)
         self.logger.info(f"Computed action: {action}")
+        self.steps+=1
+        self.blackboard.set("steps", self.steps)
         return py_trees.common.Status.SUCCESS

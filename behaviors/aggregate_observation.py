@@ -26,7 +26,6 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         self.blackboard.set("prev_camera_image", None)
         self.blackboard.set("camera_image", None)
         self.blackboard.set("point_mask", None)
-        self.blackboard.set("goal", (0., -1., 0.))
         self.camera = PinholeCameraModelNP()
         self.cam_info_topic = cam_info_topic
         # Results placeholder for callbacks
@@ -49,6 +48,8 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         #     self.node.get_logger().info('Cam not available, waiting again...')
         dummy_obs = self.get_dummy_obs()
         self.blackboard.set("observation", dummy_obs._asdict())
+
+        self.blackboard.set("goal", (0., -1., 0.))
         return True
     
     def _handle_cam_info(self, msg: CameraInfo):
@@ -143,7 +144,7 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
             [-y, x, 0]
         ])
 
-    def get_tool0_velocity_and_tool0_goal(self):
+    def get_tool0_velocity(self):
         """Compute tool velocity."""
         jacobian = self.update_jacobian()
         joint_velocities = self.blackboard.get("joint_velocities").reshape(6, 1)
@@ -154,10 +155,8 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         adjoint_tool0_base = self.make_adjoint_from_transform(tf_tool0_base)
         tool0_velocity_tool0 = np.dot(adjoint_tool0_base, tool0_velocity_base_link)
         
-        goal = self.blackboard.get("goal")
-        tool0_goal = self.mul_homog(tf_tool0_base, goal)
-
-        return tool0_velocity_tool0, tool0_goal
+    
+        return tool0_velocity_tool0
     
     
     def encode_joint_angles(self, joint_angles):
@@ -191,9 +190,12 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         col = projection[0]  # Adjust for image coordinate system
         row = projection[1]  # Adjust for image coordinate system
 
+        R = 5
+
+        radius = R*1.474578619 / np.abs(point_in_cam_frame[2])
+
         # Check if the projected point is within bounds
         if 0 <= row < cam_image_dim[0] and 0 <= col < cam_image_dim[1]:
-            radius = 20  # Adjustable radius
             rr, cc = disk((row, col), radius, shape=cam_image_dim)
             point_mask[rr, cc] = 1
         # else:
@@ -211,8 +213,10 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         vec = np.array(vec)
         vec_homog = np.ones((vec.shape[0] + 1,))
         vec_homog[:vec.shape[0]] = vec
+        result = mat @ vec_homog
 
-        return (mat @ vec_homog)[:3]
+        
+        return result[:3]/result[3]
     
     
     def get_dummy_obs(self):
@@ -240,9 +244,12 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
 
         return observation
         
-
-
-
+    def get_goal_endpoint(self):
+        tf_endpoint_base = self.lookup_transform('mock_pruner__endpoint', 'base_link')
+        goal = self.blackboard.get("goal")
+        endpoint_goal = self.mul_homog(tf_endpoint_base, goal)
+        return endpoint_goal
+        
 
     def update(self):
         """Non-blocking observation aggregation."""
@@ -260,8 +267,8 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
       
        
         endpoint_position, endpoint_orientation =  self.get_current_pose() #wrt base_link
-        goal = np.array(self.blackboard.get("goal")) #Convert goal to base_link frame
-        tool0_velocity, tool0_goal = self.get_tool0_velocity_and_tool0_goal()
+        goal = np.array(self.blackboard.get("goal")) #Goal in base_link frame
+        tool0_velocity = self.get_tool0_velocity()
         #Get tool0 velocity wrt base_link rotation only (TODO: Use adjoints)
         # tf_ee_base = self.lookup_transform('base_link', 'tool0')
         # tool0_velocity[:3] = np.dot(tf_ee_base[:3, :3].T, tool0_velocity[:3])
@@ -270,24 +277,24 @@ class AggregateObservation(py_trees.behaviour.Behaviour):
         endpoint_position_init = self.blackboard.get("end_position_init")
     
         achieved_goal = endpoint_position - endpoint_position_init #end position wrt base_link
-        desired_goal_tool = tool0_goal
+        desired_goal = np.array(self.blackboard.get('goal')) - endpoint_position_init
         
         achieved_or = endpoint_orientation[:3, :2].reshape(6, )
         joint_angles = self.encode_joint_angles(self.blackboard.get("joint_angles"))
         prev_action_achieved = tool0_velocity.reshape(6, ) #In tool0 frame
         mask = self.create_goal_point_mask(self.blackboard.get("goal"))
-        relative_distance = endpoint_position - goal
-
+        relative_distance = self.get_goal_endpoint()
         self.blackboard.set("point_mask", mask)
         rgb = self.blackboard.get("camera_image")
         prev_rgb = self.blackboard.get("prev_camera_image")
         if prev_rgb is None:
             prev_rgb = np.zeros_like(rgb)
 
+
         observation = Observation(
             achieved_goal=achieved_goal,
             achieved_or=achieved_or,
-            desired_goal=desired_goal_tool,
+            desired_goal=desired_goal,
             joint_angles=joint_angles,
             prev_action_achieved=prev_action_achieved,
             point_mask=mask,

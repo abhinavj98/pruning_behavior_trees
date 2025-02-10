@@ -62,7 +62,7 @@ class TeleopNode(Node):
         # Messages
         self.servo_msg = TwistStamped()
         # self.servo_msg.header.frame_id = f'{self.linear_slider_prefix}base_link'
-        self.servo_msg.header.frame_id = f'{self.ur_robot_prefix}base_link'
+        self.servo_msg.header.frame_id = f'{self.ur_robot_prefix}tool0'
 
         # Joystick mappings (XBox 1 controller)
         self.buttons = {

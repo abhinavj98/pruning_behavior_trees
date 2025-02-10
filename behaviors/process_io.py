@@ -18,18 +18,18 @@ from abc import ABC, abstractmethod
 
 
 class ProcessIO(py_trees.behaviour.Behaviour):
-    def __init__(self, name="Process IO", asyncio_loop=None):
+    def __init__(self, name="Process IO", asyncio_loop=None, tree_type='default', tree_number=-1, rotated = True):
         super().__init__(name=name)
         self.blackboard = py_trees.blackboard.Blackboard()
 
         self.interrupt_dict = {
-            "move_home": MoveHomeInterrupt(1),
+            "move_home": MoveHomeInterrupt(1, rotated=rotated),
             "toggle_servo": ToggleServoInterrupt(2),
             "execute_action": ChangeBlackboardValueInterrupt(3, "execute_action", True, ChangeBlackboardValueInterrupt.ValueChange.TOGGLE),
             "reset_rl_model": ChangeBlackboardValueInterrupt(4, "reset_rl_model", True, ChangeBlackboardValueInterrupt.ValueChange.SET),
             "run_robot_w_joystick": ChangeBlackboardValueInterrupt(11, "teleop_control", True, ChangeBlackboardValueInterrupt.ValueChange.TOGGLE),
-            "increment_cutpoint": UpdateCutpointInterrupt(18, "goal", None, UpdateCutpointInterrupt.ValueChange.SET),
-            "decrement_cutpoint": UpdateCutpointInterrupt(-18, "goal", None, UpdateCutpointInterrupt.ValueChange.SET),
+            "increment_cutpoint": UpdateCutpointInterrupt(18, ["goal", "cutpoint_num"], [(0,0,0), None], UpdateCutpointInterrupt.ValueChange.SET, default_value=(0.,0.,0.), tree_type = tree_type, tree_number=tree_number),
+            "decrement_cutpoint": UpdateCutpointInterrupt(-18, ["goal", "cutpoint_num"], [(0,0,0), None], UpdateCutpointInterrupt.ValueChange.SET, default_value=(0.,0.,0.), tree_number = tree_number, tree_type=tree_type),
             "add_goal_to_csv": UpdateCsvWithEndpoint(12)
         }
 
